@@ -3,11 +3,9 @@
 -- Functions to generate the different sections of an Xcode project.
 -- Copyright (c) 2009-2011 Jason Perkins and the Premake project
 --
-
+	premake.xcode.parameters = { }
 	local xcode = premake.xcode
 	local tree  = premake.tree
-
-
 --
 -- Return the Xcode build category for a given file, based on the file extension.
 --
@@ -24,16 +22,23 @@
 			[".cc"] = "Sources",
 			[".cpp"] = "Sources",
 			[".cxx"] = "Sources",
+			[".c++"] = "Sources",
 			[".dylib"] = "Frameworks",
+			[".bundle"] = "Frameworks",
 			[".framework"] = "Frameworks",
+			[".tbd"] = "Frameworks",
 			[".m"] = "Sources",
 			[".mm"] = "Sources",
+			[".S"] = "Sources",
 			[".strings"] = "Resources",
 			[".nib"] = "Resources",
 			[".xib"] = "Resources",
 			[".icns"] = "Resources",
 			[".bmp"] = "Resources",
 			[".wav"] = "Resources",
+			[".xcassets"]  = "Resources",
+			[".xcdatamodeld"] = "Sources",
+			[".swift"] = "Sources",
 		}
 		return categories[path.getextension(node.name)]
 	end
@@ -74,13 +79,18 @@
 			[".cpp"]       = "sourcecode.cpp.cpp",
 			[".css"]       = "text.css",
 			[".cxx"]       = "sourcecode.cpp.cpp",
+			[".c++"]       = "sourcecode.cpp.cpp",
+			[".entitlements"] = "text.xml",
+			[".bundle"]    = "wrapper.cfbundle",
 			[".framework"] = "wrapper.framework",
+			[".tbd"]       = "sourcecode.text-based-dylib-definition",
 			[".gif"]       = "image.gif",
 			[".h"]         = "sourcecode.c.h",
 			[".html"]      = "text.html",
 			[".lua"]       = "sourcecode.lua",
 			[".m"]         = "sourcecode.c.objc",
 			[".mm"]        = "sourcecode.cpp.objcpp",
+			[".S"]         = "sourcecode.asm",
 			[".nib"]       = "wrapper.nib",
 			[".pch"]       = "sourcecode.c.h",
 			[".plist"]     = "text.plist.xml",
@@ -89,6 +99,9 @@
 			[".icns"]      = "image.icns",
 			[".bmp"]       = "image.bmp",
 			[".wav"]       = "audio.wav",
+			[".xcassets"]  = "folder.assetcatalog",
+			[".xcdatamodeld"] = "wrapper.xcdatamodeld",
+			[".swift"]     = "sourcecode.swift",
 		}
 		return types[path.getextension(node.path)] or "text"
 	end
@@ -109,7 +122,11 @@
 			[".cpp"]       = "sourcecode.cpp.cpp",
 			[".css"]       = "text.css",
 			[".cxx"]       = "sourcecode.cpp.cpp",
+			[".c++"]       = "sourcecode.cpp.cpp",
+			[".entitlements"] = "text.xml",
+			[".bundle"]    = "wrapper.cfbundle",
 			[".framework"] = "wrapper.framework",
+			[".tbd"]       = "wrapper.framework",
 			[".gif"]       = "image.gif",
 			[".h"]         = "sourcecode.cpp.h",
 			[".html"]      = "text.html",
@@ -124,6 +141,9 @@
 			[".icns"]      = "image.icns",
 			[".bmp"]       = "image.bmp",
 			[".wav"]       = "audio.wav",
+			[".xcassets"]  = "folder.assetcatalog",
+			[".xcdatamodeld"] = "wrapper.xcdatamodeld",
+			[".swift"]     = "sourcecode.swift",
 		}
 		return types[path.getextension(node.path)] or "text"
 	end
@@ -139,9 +159,10 @@
 	function xcode.getproducttype(node)
 		local types = {
 			ConsoleApp  = "com.apple.product-type.tool",
-			WindowedApp = "com.apple.product-type.application",
+			WindowedApp = node.cfg.options.SkipBundling and "com.apple.product-type.tool" or "com.apple.product-type.application",
 			StaticLib   = "com.apple.product-type.library.static",
 			SharedLib   = "com.apple.product-type.library.dynamic",
+			Bundle      = node.cfg.options.SkipBundling and "com.apple.product-type.tool" or "com.apple.product-type.bundle",
 		}
 		return types[node.cfg.kind]
 	end
@@ -159,16 +180,17 @@
 	function xcode.gettargettype(node)
 		local types = {
 			ConsoleApp  = "\"compiled.mach-o.executable\"",
-			WindowedApp = "wrapper.application",
+			WindowedApp = node.cfg.options.SkipBundling and "\"compiled.mach-o.executable\"" or "wrapper.application",
 			StaticLib   = "archive.ar",
 			SharedLib   = "\"compiled.mach-o.dylib\"",
+			Bundle      = node.cfg.options.SkipBundling and "\"compiled.mach-o.bundle\"" or "wrapper.cfbundle",
 		}
 		return types[node.cfg.kind]
 	end
 
 
 --
--- Return a unique file name for a project. Since Xcode uses .xcodeproj's to 
+-- Return a unique file name for a project. Since Xcode uses .xcodeproj's to
 -- represent both solutions and projects there is a likely change of a name
 -- collision. Tack on a number to differentiate them.
 --
@@ -194,9 +216,19 @@
 --
 
 	function xcode.isframework(fname)
-		return (path.getextension(fname) == ".framework")
+		return (path.getextension(fname) == ".framework" or path.getextension(fname) == ".tbd")
 	end
 
+--
+-- Generates a unique 12 byte ID.
+-- Parameter is optional
+--
+-- @returns
+--    A 24-character string representing the 12 byte ID.
+--
+	function xcode.uuid(param)
+		return os.uuid(param):upper():gsub('-',''):sub(0,24)
+	end
 
 --
 -- Retrieves a unique 12 byte ID for an object. This function accepts and ignores two
@@ -207,19 +239,39 @@
 --    A 24-character string representing the 12 byte ID.
 --
 
-	function xcode.newid()
-		return string.format("%04X%04X%04X%04X%04X%04X",
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767))
+	function xcode.newid(node, usage)
+		local base = ''
+
+		-- Seed the uuid with the project name and a project-specific counter.
+		-- This is to prevent matching strings from generating the same uuid,
+		-- while still generating the same uuid for the same properties across
+		-- runs.
+		local prj = node.project
+
+		if prj == nil then
+			local parent = node.parent
+			while parent ~= nil do
+				if parent.project ~= nil then
+					prj = parent.project
+					break
+				end
+				parent = parent.parent
+			end
+		end
+
+		if prj ~= nil then
+			prj.uuidcounter = (prj.uuidcounter or 0) + 1
+			base = base .. prj.name .. "$" .. prj.uuidcounter .. "$"
+		end
+
+		base = base .. "$" .. (node.path or node.name or "")
+		base = base .. "$" .. (usage or "")
+		return xcode.uuid(base)
 	end
 
 
 --
--- Create a product tree node and all projects in a solution; assigning IDs 
+-- Create a product tree node and all projects in a solution; assigning IDs
 -- that are needed for inter-project dependencies.
 --
 -- @param sln
@@ -230,7 +282,7 @@
 		-- create and cache a list of supported platforms
 		sln.xcode = { }
 		sln.xcode.platforms = premake.filterplatforms(sln, premake.action.current().valid_platforms, "Universal")
-		
+
 		for prj in premake.solution.eachproject(sln) do
 			-- need a configuration to get the target information
 			local cfg = premake.getconfig(prj, prj.configurations[1], sln.xcode.platforms[1])
@@ -240,7 +292,7 @@
 			node.cfg = cfg
 			node.id = premake.xcode.newid(node, "product")
 			node.targetid = premake.xcode.newid(node, "target")
-			
+
 			-- attach it to the project
 			prj.xcode = {}
 			prj.xcode.projectnode = node
@@ -257,11 +309,14 @@
 --    The Xcode specific list tag.
 --
 
-	function xcode.printlist(list, tag)
+	function xcode.printlist(list, tag, sort)
 		if #list > 0 then
+			if sort ~= nil and sort == true then
+				table.sort(list)
+			end
 			_p(4,'%s = (', tag)
 			for _, item in ipairs(list) do
-				local escaped_item = item:gsub("\"", "\\\"")
+				local escaped_item = item:gsub("\"", "\\\\\\\""):gsub("'", "\\\\'")
 				_p(5, '"%s",', escaped_item)
 			end
 			_p(4,');')
@@ -269,21 +324,36 @@
 	end
 
 
+--
+-- Escape a string for use in an Xcode project file.
+--
+
+	function xcode.quotestr(str)
+		-- simple strings don't need quotes
+		if str:match("[^a-zA-Z0-9$._/]") == nil then
+			return str
+		end
+
+		return "\"" .. str:gsub("[\"\\\"]", "\\%0") .. "\""
+	end
+
+
+
 ---------------------------------------------------------------------------
 -- Section generator functions, in the same order in which they appear
 -- in the .pbxproj file
 ---------------------------------------------------------------------------
 
-	function xcode.Header()
-		_p('// !$*UTF8*$!')
-		_p('{')
-		_p(1,'archiveVersion = 1;')
-		_p(1,'classes = {')
-		_p(1,'};')
-		_p(1,'objectVersion = 45;')
-		_p(1,'objects = {')
-		_p('')
-	end
+function xcode.Header(tr, objversion)
+	_p('// !$*UTF8*$!')
+	_p('{')
+	_p(1,'archiveVersion = 1;')
+	_p(1,'classes = {')
+	_p(1,'};')
+	_p(1,'objectVersion = %d;', objversion)
+	_p(1,'objects = {')
+	_p('')
+end
 
 
 	function xcode.PBXBuildFile(tr)
@@ -291,7 +361,7 @@
 		tree.traverse(tr, {
 			onnode = function(node)
 				if node.buildid then
-					_p(2,'%s /* %s in %s */ = {isa = PBXBuildFile; fileRef = %s /* %s */; };', 
+					_p(2,'%s /* %s in %s */ = {isa = PBXBuildFile; fileRef = %s /* %s */; };',
 						node.buildid, node.name, xcode.getbuildcategory(node), node.id, node.name)
 				end
 			end
@@ -328,25 +398,25 @@
 
 	function xcode.PBXFileReference(tr,prj)
 		_p('/* Begin PBXFileReference section */')
-		
+
 		tree.traverse(tr, {
 			onleaf = function(node)
 				-- I'm only listing files here, so ignore anything without a path
 				if not node.path then
 					return
 				end
-				
+
 				-- is this the product node, describing the output target?
 				if node.kind == "product" then
 					_p(2,'%s /* %s */ = {isa = PBXFileReference; explicitFileType = %s; includeInIndex = 0; name = "%s"; path = "%s"; sourceTree = BUILT_PRODUCTS_DIR; };',
 						node.id, node.name, xcode.gettargettype(node), node.name, path.getname(node.cfg.buildtarget.bundlepath))
-						
+
 				-- is this a project dependency?
 				elseif node.parent.parent == tr.projects then
 					local relpath = path.getrelative(tr.project.location, node.parent.project.location)
 					_p(2,'%s /* %s */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = "%s"; path = "%s"; sourceTree = SOURCE_ROOT; };',
 						node.parent.id, node.parent.name, node.parent.name, path.join(relpath, node.parent.name))
-					
+
 				-- something else
 				else
 					local pth, src
@@ -365,6 +435,8 @@
 								error('relative paths are not currently supported for frameworks')
 							end
 							pth = nodePath
+						elseif path.getextension(nodePath)=='.tbd' then
+							pth = "/usr/lib/" .. nodePath
 						else
 							pth = "/System/Library/Frameworks/" .. nodePath
 						end
@@ -391,7 +463,7 @@
 							pth = tree.getlocalpath(node)
 						end
 					end
-					
+
 					if (not prj.options.ForceCPP) then
 						_p(2,'%s /* %s */ = {isa = PBXFileReference; lastKnownFileType = %s; name = "%s"; path = "%s"; sourceTree = "%s"; };',
 							node.id, node.name, xcode.getfiletype(node), node.name, pth, src)
@@ -402,7 +474,7 @@
 				end
 			end
 		})
-		
+
 		_p('/* End PBXFileReference section */')
 		_p('')
 	end
@@ -414,21 +486,21 @@
 		_p(3,'isa = PBXFrameworksBuildPhase;')
 		_p(3,'buildActionMask = 2147483647;')
 		_p(3,'files = (')
-		
+
 		-- write out library dependencies
 		tree.traverse(tr.frameworks, {
 			onleaf = function(node)
 				_p(4,'%s /* %s in Frameworks */,', node.buildid, node.name)
 			end
 		})
-		
+
 		-- write out project dependencies
 		tree.traverse(tr.projects, {
 			onleaf = function(node)
 				_p(4,'%s /* %s in Frameworks */,', node.buildid, node.name)
 			end
 		})
-		
+
 		_p(3,');')
 		_p(3,'runOnlyForDeploymentPostprocessing = 0;')
 		_p(2,'};')
@@ -446,21 +518,21 @@
 				if (node.path and #node.children == 0) or node.kind == "vgroup" then
 					return
 				end
-				
+
 				-- project references get special treatment
 				if node.parent == tr.projects then
 					_p(2,'%s /* Products */ = {', node.productgroupid)
 				else
 					_p(2,'%s /* %s */ = {', node.id, node.name)
 				end
-				
+
 				_p(3,'isa = PBXGroup;')
 				_p(3,'children = (')
 				for _, childnode in ipairs(node.children) do
 					_p(4,'%s /* %s */,', childnode.id, childnode.name)
 				end
 				_p(3,');')
-				
+
 				if node.parent == tr.projects then
 					_p(3,'name = Products;')
 				else
@@ -473,22 +545,22 @@
 						_p(3,'path = "%s";', p)
 					end
 				end
-				
+
 				_p(3,'sourceTree = "<group>";')
 				_p(2,'};')
 			end
 		}, true)
-				
+
 		_p('/* End PBXGroup section */')
 		_p('')
-	end	
+	end
 
 
 	function xcode.PBXNativeTarget(tr)
 		_p('/* Begin PBXNativeTarget section */')
 		for _, node in ipairs(tr.products.children) do
 			local name = tr.project.name
-			
+
 			-- This function checks whether there are build commands of a specific
 			-- type to be executed; they will be generated correctly, but the project
 			-- commands will not contain any per-configuration commands, so the logic
@@ -505,7 +577,7 @@
 					end
 				end
 			end
-			
+
 			_p(2,'%s /* %s */ = {', node.targetid, name)
 			_p(3,'isa = PBXNativeTarget;')
 			_p(3,'buildConfigurationList = %s /* Build configuration list for PBXNativeTarget "%s" */;', node.cfgsection, name)
@@ -525,15 +597,15 @@
 			_p(3,');')
 			_p(3,'buildRules = (')
 			_p(3,');')
-			
+
 			_p(3,'dependencies = (')
 			for _, node in ipairs(tr.projects.children) do
 				_p(4,'%s /* PBXTargetDependency */,', node.targetdependid)
 			end
 			_p(3,');')
-			
+
 			_p(3,'name = "%s";', name)
-			
+
 			local p
 			if node.cfg.kind == "ConsoleApp" then
 				p = "$(HOME)/bin"
@@ -543,7 +615,7 @@
 			if p then
 				_p(3,'productInstallPath = "%s";', p)
 			end
-			
+
 			_p(3,'productName = "%s";', name)
 			_p(3,'productReference = %s /* %s */;', node.id, node.name)
 			_p(3,'productType = "%s";', xcode.getproducttype(node))
@@ -554,16 +626,16 @@
 	end
 
 
-	function xcode.PBXProject(tr)
+	function xcode.PBXProject(tr, compatVersion)
 		_p('/* Begin PBXProject section */')
-		_p(2,'08FB7793FE84155DC02AAC07 /* Project object */ = {')
+		_p(2,'__RootObject_ /* Project object */ = {')
 		_p(3,'isa = PBXProject;')
 		_p(3,'buildConfigurationList = 1DEB928908733DD80010E9CD /* Build configuration list for PBXProject "%s" */;', tr.name)
-		_p(3,'compatibilityVersion = "Xcode 3.2";')
+		_p(3,'compatibilityVersion = "Xcode %s";', compatVersion)
 		_p(3,'hasScannedForEncodings = 1;')
 		_p(3,'mainGroup = %s /* %s */;', tr.id, tr.name)
 		_p(3,'projectDirPath = "";')
-		
+
 		if #tr.projects.children > 0 then
 			_p(3,'projectReferences = (')
 			for _, node in ipairs(tr.projects.children) do
@@ -574,7 +646,7 @@
 			end
 			_p(3,');')
 		end
-		
+
 		_p(3,'projectRoot = "";')
 		_p(3,'targets = (')
 		for _, node in ipairs(tr.products.children) do
@@ -605,7 +677,7 @@
 			_p('')
 		end
 	end
-	
+
 
 	function xcode.PBXResourcesBuildPhase(tr)
 		_p('/* Begin PBXResourcesBuildPhase section */')
@@ -628,27 +700,26 @@
 		_p('/* End PBXResourcesBuildPhase section */')
 		_p('')
 	end
-	
+
 	function xcode.PBXShellScriptBuildPhase(tr)
 		local wrapperWritten = false
 
 		local function doblock(id, name, which)
-			-- start with the project-level commands (most common)
-			local prjcmds = tr.project[which]
-			local commands = table.join(prjcmds, {})
-
-			-- see if there are any config-specific commands to add
+			-- see if there are any commands to add for each config
+			local commands = {}
 			for _, cfg in ipairs(tr.configs) do
 				local cfgcmds = cfg[which]
-				if #cfgcmds > #prjcmds then
+				if #cfgcmds > 0 then
 					table.insert(commands, 'if [ "${CONFIGURATION}" = "' .. xcode.getconfigname(cfg) .. '" ]; then')
-					for i = #prjcmds + 1, #cfgcmds do
-						table.insert(commands, cfgcmds[i])
+					for i = 1, #cfgcmds do
+						local cmd = cfgcmds[i]
+						cmd = cmd:gsub('\\','\\\\')
+						table.insert(commands, cmd)
 					end
 					table.insert(commands, 'fi')
 				end
 			end
-			
+
 			if #commands > 0 then
 				if not wrapperWritten then
 					_p('/* Begin PBXShellScriptBuildPhase section */')
@@ -670,18 +741,18 @@
 				_p(2,'};')
 			end
 		end
-				
+
 		doblock("9607AE1010C857E500CD1376", "Prebuild", "prebuildcommands")
 		doblock("9607AE3510C85E7E00CD1376", "Prelink", "prelinkcommands")
 		doblock("9607AE3710C85E8F00CD1376", "Postbuild", "postbuildcommands")
-		
+
 		if wrapperWritten then
 			_p('/* End PBXShellScriptBuildPhase section */')
 		end
 	end
-	
-	
-	function xcode.PBXSourcesBuildPhase(tr)
+
+
+	function xcode.PBXSourcesBuildPhase(tr,prj)
 		_p('/* Begin PBXSourcesBuildPhase section */')
 		for _, target in ipairs(tr.products.children) do
 			_p(2,'%s /* Sources */ = {', target.sourcesid)
@@ -691,7 +762,9 @@
 			tree.traverse(tr, {
 				onleaf = function(node)
 					if xcode.getbuildcategory(node) == "Sources" then
-						_p(4,'%s /* %s in Sources */,', node.buildid, node.name)
+						if not table.icontains(prj.excludes, node.cfg.name) then -- if not excluded
+							_p(4,'%s /* %s in Sources */,', node.buildid, node.name)
+						end
 					end
 				end
 			})
@@ -745,188 +818,135 @@
 	end
 
 
-	function xcode.XCBuildConfiguration_Target(tr, target, cfg)
-		local cfgname = xcode.getconfigname(cfg)
-		
-		_p(2,'%s /* %s */ = {', cfg.xcode.targetid, cfgname)
-		_p(3,'isa = XCBuildConfiguration;')
-		_p(3,'buildSettings = {')
-		_p(4,'ALWAYS_SEARCH_USER_PATHS = NO;')
+	function xcode.cfg_excluded_files(prj, cfg)
+		local excluded = {}
 
-		if not cfg.flags.Symbols then
-			_p(4,'DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";')
-		end
-		
-		if cfg.kind ~= "StaticLib" and cfg.buildtarget.prefix ~= "" then
-			_p(4,'EXECUTABLE_PREFIX = %s;', cfg.buildtarget.prefix)
-		end
-		
-		if cfg.targetextension then
-			local ext = cfg.targetextension
-			ext = iif(ext:startswith("."), ext:sub(2), ext)
-			_p(4,'EXECUTABLE_EXTENSION = %s;', ext)
-		end
+		-- Converts a file path to a pattern with no relative parts, prefixed with `*`.
+		local function exclude_pattern(file)
+			if path.isabsolute(file) then
+				return file
+			end
 
-		local outdir = path.getdirectory(cfg.buildtarget.bundlepath)
-		if outdir ~= "." then
-			_p(4,'CONFIGURATION_BUILD_DIR = %s;', outdir)
+			-- handle `foo/../bar`
+			local start, term = file:findlast("/%.%./")
+			if term then
+				return path.join("*", file:sub(term + 1))
+			end
+
+			-- handle `../foo/bar`
+			start, term = file:find("%.%./")
+			if start == 1 then
+				return path.join("*", file:sub(term + 1))
+			end
+
+			-- handle `foo/bar`
+			return path.join("*", file)
 		end
 
-		_p(4,'GCC_DYNAMIC_NO_PIC = NO;')
-		_p(4,'GCC_MODEL_TUNING = G5;')
-
-		if tr.infoplist then
-			_p(4,'INFOPLIST_FILE = "%s";', tr.infoplist.cfg.name)
-		end
-
-		installpaths = {
-			ConsoleApp = '/usr/local/bin',
-			WindowedApp = '"$(HOME)/Applications"',
-			SharedLib = '/usr/local/lib',
-			StaticLib = '/usr/local/lib',
-		}
-		_p(4,'INSTALL_PATH = %s;', installpaths[cfg.kind])
-
-		_p(4,'PRODUCT_NAME = "%s";', cfg.buildtarget.basename)
-		_p(3,'};')
-		_p(3,'name = "%s";', cfgname)
-		_p(2,'};')
-	end
-	
-	
-	function xcode.XCBuildConfiguration_Project(tr, cfg)
-		local cfgname = xcode.getconfigname(cfg)
-
-		_p(2,'%s /* %s */ = {', cfg.xcode.projectid, cfgname)
-		_p(3,'isa = XCBuildConfiguration;')
-		_p(3,'buildSettings = {')
-		
-		local archs = {
-			Native = "$(NATIVE_ARCH_ACTUAL)",
-			x32    = "i386",
-			x64    = "x86_64",
-			Universal32 = "$(ARCHS_STANDARD_32_BIT)",
-			Universal64 = "$(ARCHS_STANDARD_64_BIT)",
-			Universal = "$(ARCHS_STANDARD_32_64_BIT)",
-		}
-		_p(4,'ARCHS = "%s";', archs[cfg.platform])
-
-		_p(4,'SDKROOT = "%s";', xcode.toolset)
-		
-		local targetdir = path.getdirectory(cfg.buildtarget.bundlepath)
-		if targetdir ~= "." then
-			_p(4,'CONFIGURATION_BUILD_DIR = "$(SYMROOT)";');
-		end
-		
-		_p(4,'CONFIGURATION_TEMP_DIR = "$(OBJROOT)";')
-		
-		if cfg.flags.Symbols then
-			_p(4,'COPY_PHASE_STRIP = NO;')
-		end
-		
-		_p(4,'GCC_C_LANGUAGE_STANDARD = gnu99;')
-		
-		if cfg.flags.NoExceptions then
-			_p(4,'GCC_ENABLE_CPP_EXCEPTIONS = NO;')
-		end
-		
-		if cfg.flags.NoRTTI then
-			_p(4,'GCC_ENABLE_CPP_RTTI = NO;')
-		end
-		
-		if _ACTION ~= "xcode4" and cfg.flags.Symbols and not cfg.flags.NoEditAndContinue then
-			_p(4,'GCC_ENABLE_FIX_AND_CONTINUE = YES;')
-		end
-		
-		if cfg.flags.NoExceptions then
-			_p(4,'GCC_ENABLE_OBJC_EXCEPTIONS = NO;')
-		end
-		
-		if cfg.flags.Optimize or cfg.flags.OptimizeSize then
-			_p(4,'GCC_OPTIMIZATION_LEVEL = s;')
-		elseif cfg.flags.OptimizeSpeed then
-			_p(4,'GCC_OPTIMIZATION_LEVEL = 3;')
-		else
-			_p(4,'GCC_OPTIMIZATION_LEVEL = 0;')
-		end
-		
-		if cfg.pchheader and not cfg.flags.NoPCH then
-			_p(4,'GCC_PRECOMPILE_PREFIX_HEADER = YES;')
-			_p(4,'GCC_PREFIX_HEADER = "%s";', cfg.pchheader)
-		end
-		
-		xcode.printlist(cfg.defines, 'GCC_PREPROCESSOR_DEFINITIONS')
-
-		_p(4,'GCC_SYMBOLS_PRIVATE_EXTERN = NO;')
-		
-		if cfg.flags.FatalWarnings then
-			_p(4,'GCC_TREAT_WARNINGS_AS_ERRORS = YES;')
-		end
-		
-		_p(4,'GCC_WARN_ABOUT_RETURN_TYPE = YES;')
-		_p(4,'GCC_WARN_UNUSED_VARIABLE = YES;')
-
-		xcode.printlist(cfg.includedirs, 'HEADER_SEARCH_PATHS')
-		xcode.printlist(cfg.libdirs, 'LIBRARY_SEARCH_PATHS')
-		
-		_p(4,'OBJROOT = "%s";', cfg.objectsdir)
-
-		_p(4,'ONLY_ACTIVE_ARCH = %s;',iif(premake.config.isdebugbuild(cfg),'YES','NO'))
-		
-		-- build list of "other" C/C++ flags
-		local checks = {
-			["-ffast-math"]          = cfg.flags.FloatFast,
-			["-ffloat-store"]        = cfg.flags.FloatStrict,
-			["-fomit-frame-pointer"] = cfg.flags.NoFramePointer,
-		}
-			
-		local flags = { }
-		for flag, check in pairs(checks) do
-			if check then
-				table.insert(flags, flag)
+		local function add_file(file)
+			local name = exclude_pattern(file)
+			if not table.icontains(excluded, name) then
+				table.insert(excluded, name)
 			end
 		end
-		xcode.printlist(table.join(flags, cfg.buildoptions), 'OTHER_CFLAGS')
 
-		-- build list of "other" linked flags. All libraries that aren't frameworks
-		-- are listed here, so I don't have to try and figure out if they are ".a"
-		-- or ".dylib", which Xcode requires to list in the Frameworks section
-		flags = { }
-		for _, lib in ipairs(premake.getlinks(cfg, "system")) do
-			if not xcode.isframework(lib) then
-				table.insert(flags, "-l" .. lib)
+		local function verify_file(file)
+			local name = exclude_pattern(file)
+			if table.icontains(excluded, name) then
+				-- xcode only allows us to exclude files based on filename, not path...
+				error("'" .. file .. "' would be excluded by the rule to exclude '" .. name .. "'")
 			end
 		end
-		flags = table.join(flags, cfg.linkoptions)
-		xcode.printlist(flags, 'OTHER_LDFLAGS')
-		
-		if cfg.flags.StaticRuntime then
-			_p(4,'STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;')
+
+		for _, file in ipairs(cfg.excludes) do
+			add_file(file)
 		end
-		
-		if targetdir ~= "." then
-			_p(4,'SYMROOT = "%s";', targetdir)
+
+		for _, file in ipairs(prj.allfiles) do
+			if not table.icontains(prj.excludes, file) and not table.icontains(cfg.excludes, file) then
+				if not table.icontains(cfg.files, file) then
+					add_file(file)
+				else
+					verify_file(file)
+				end
+			end
 		end
-		
-		if cfg.flags.ExtraWarnings then
-			_p(4,'WARNING_CFLAGS = "-Wall";')
-		end
-		
-		_p(3,'};')
-		_p(3,'name = "%s";', cfgname)
-		_p(2,'};')
+
+		table.sort(excluded)
+		return excluded
 	end
 
 
-	function xcode.XCBuildConfiguration(tr)
+	function xcode.XCBuildConfiguration_Impl(tr, id, opts, cfg)
+		local cfgname = xcode.getconfigname(cfg)
+
+		_p(2,'%s /* %s */ = {', id, cfgname)
+		_p(3,'isa = XCBuildConfiguration;')
+		_p(3,'buildSettings = {')
+
+		for k, v in table.sortedpairs(opts) do
+			if type(v) == "table" then
+				if #v > 0 then
+					_p(4,'%s = (', k)
+
+					for i, v2 in ipairs(v) do
+						_p(5,'%s,', xcode.quotestr(tostring(v2)))
+					end
+
+					_p(4,');')
+				end
+			else
+				_p(4,'%s = %s;', k, xcode.quotestr(tostring(v)))
+			end
+		end
+
+		_p(3,'};')
+		_p(3,'name = %s;', xcode.quotestr(cfgname))
+		_p(2,'};')
+	end
+
+	local function add_options(options, extras)
+		for _, tbl in ipairs(extras) do
+			for tkey, tval in pairs(tbl) do
+				options[tkey] = tval
+			end
+		end
+	end
+
+	local function add_wholearchive_links(opts, cfg)
+		if #cfg.wholearchive > 0 then
+			local linkopts = {}
+
+			for _, depcfg in ipairs(premake.getlinks(cfg, "siblings", "object")) do
+				if table.icontains(cfg.wholearchive, depcfg.project.name) then
+					local linkpath = path.rebase(depcfg.linktarget.fullpath, depcfg.location, cfg.location)
+					table.insert(linkopts, "-force_load")
+					table.insert(linkopts, linkpath)
+				end
+			end
+
+			if opts.OTHER_LDFLAGS then
+				linkopts = table.join(linkopts, opts.OTHER_LDFLAGS)
+			end
+
+			opts.OTHER_LDFLAGS = linkopts
+		end
+	end
+
+	function xcode.XCBuildConfiguration(tr, prj, opts)
 		_p('/* Begin XCBuildConfiguration section */')
 		for _, target in ipairs(tr.products.children) do
 			for _, cfg in ipairs(tr.configs) do
-				xcode.XCBuildConfiguration_Target(tr, target, cfg)
+				local values = opts.ontarget(tr, target, cfg)
+				add_options(values, cfg.xcodetargetopts)
+				xcode.XCBuildConfiguration_Impl(tr, cfg.xcode.targetid, values, cfg)
 			end
 		end
 		for _, cfg in ipairs(tr.configs) do
-			xcode.XCBuildConfiguration_Project(tr, cfg)
+			local values = opts.onproject(tr, prj, cfg)
+			add_options(values, cfg.xcodeprojectopts)
+			add_wholearchive_links(values, cfg)
+			xcode.XCBuildConfiguration_Impl(tr, cfg.xcode.projectid, values, cfg)
 		end
 		_p('/* End XCBuildConfiguration section */')
 		_p('')
@@ -935,7 +955,7 @@
 
 	function xcode.XCBuildConfigurationList(tr)
 		local sln = tr.project.solution
-		
+
 		_p('/* Begin XCConfigurationList section */')
 		for _, target in ipairs(tr.products.children) do
 			_p(2,'%s /* Build configuration list for PBXNativeTarget "%s" */ = {', target.cfgsection, target.name)
@@ -966,6 +986,6 @@
 
 	function xcode.Footer()
 		_p(1,'};')
-		_p('\trootObject = 08FB7793FE84155DC02AAC07 /* Project object */;')
+		_p('\trootObject = __RootObject_ /* Project object */;')
 		_p('}')
 	end

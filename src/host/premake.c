@@ -14,7 +14,11 @@
 #endif
 
 
-#define COPYRIGHT      "Copyright (C) 2002-2013 Jason Perkins and the Premake Project"
+#define COPYRIGHT \
+			"Copyright (c) 2014-2018 Branimir Karadžić, Neil Richardson,\n" \
+			"Mike Popoloski, Drew Solomon, Ted de Munnik, Miodrag Milanović\n" \
+			"Brett Vickers, Terry Hendrix II, Johan Skoeld.\n" \
+			"Copyright (C) 2002-2013 Jason Perkins and the Premake Project"
 #define ERROR_MESSAGE  "%s\n"
 
 
@@ -35,7 +39,9 @@ extern const char* builtin_scripts[];
 
 /* Built-in functions */
 static const luaL_Reg path_functions[] = {
-	{ "isabsolute",  path_isabsolute },
+	{ "isabsolute",  path_isabsolute  },
+	{ "getabsolute", path_getabsolute },
+	{ "getrelative", path_getrelative },
 	{ NULL, NULL }
 };
 
@@ -45,7 +51,6 @@ static const luaL_Reg os_functions[] = {
 	{ "_is64bit",    os_is64bit     },
 	{ "isdir",       os_isdir       },
 	{ "getcwd",      os_getcwd      },
-	{ "getversion",  os_getversion  },
 	{ "isfile",      os_isfile      },
 	{ "matchdone",   os_matchdone   },
 	{ "matchisfile", os_matchisfile },
@@ -365,7 +370,7 @@ int load_builtin_scripts(lua_State* L)
 	lua_getfield(L, -1, "traceback");
 	lua_remove(L, -2);
 	int ehpos = lua_gettop(L);
-	
+
 	/* hand off control to the scripts */
 	lua_getglobal(L, "_premake_main");
 	if (lua_pcall(L, 0, 1, ehpos) != OKAY)
